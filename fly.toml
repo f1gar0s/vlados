@@ -1,0 +1,22 @@
+# Конфиг для `fly launch` / `fly deploy`. Замените app на своё имя —
+# оно должно быть глобально уникальным на Fly.io, отсюда будет URL вида
+# https://<app>.fly.dev
+app = "designersformusic-player"
+primary_region = "waw"  # Варшава — ближайший к Европе регион; список: fly platform regions
+
+[build]
+
+[mounts]
+  source = "player_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false   # держим процесс живым — иначе фоновый опрос канала не работает
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

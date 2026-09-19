@@ -1,10 +1,14 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Плеер</title>
+<script>
+  // Адрес вашего бэкенда (см. server/README) — например https://designersformusic-player.fly.dev
+  // Пусто = берём tracks.json рядом с этой страницей (демо-режим / локальные файлы).
+  window.PLAYER_API_BASE = "";
+</script>
 <script src="https://telegram.org/js/telegram-web-app.js?58"></script>
 <style>
   :root{
@@ -552,8 +556,13 @@ async function boot(){
     if (user && user.first_name) $('where').textContent = 'Фонотека · ' + user.first_name;
   }
 
+  const params = new URLSearchParams(location.search);
+  const apiBase = (params.get('api') || window.PLAYER_API_BASE || '').replace(/\/+$/, '');
+  const token = params.get('token');
   try {
-    const res = await fetch('tracks.json', {cache:'no-store'});
+    let url = apiBase ? `${apiBase}/tracks.json` : 'tracks.json';
+    if (apiBase && token) url += `?token=${encodeURIComponent(token)}`;
+    const res = await fetch(url, {cache:'no-store'});
     if (!res.ok) throw 0;
     const data = await res.json();
     tracks = Array.isArray(data) ? data : (data.tracks || []);
