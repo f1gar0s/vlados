@@ -127,6 +127,8 @@
   .row .rt span{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .row.active .rt b{color:var(--accent)}
   .row .dur{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .tail{flex:none}
+  .tail.dur{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
   .bars{display:flex;gap:2px;align-items:flex-end;height:14px}
   .bars s{width:2px;background:var(--accent);height:40%;border-radius:1px;animation:eq .9s ease-in-out infinite}
   .bars s:nth-child(2){animation-delay:.15s;height:90%}
@@ -335,7 +337,7 @@ function load(id, autoplay){
   $('cur').textContent = '0:00';
   $('dur').textContent = t.duration ? fmt(t.duration) : '0:00';
   syncFav();
-  renderList();
+  refreshActive();
   mediaSession(t);
   store.set('last', t.id);
   if (autoplay) play();
@@ -366,8 +368,8 @@ audio.addEventListener('timeupdate', () => {
   $('cur').textContent = fmt(audio.currentTime);
 });
 audio.addEventListener('loadedmetadata', () => { $('dur').textContent = fmt(audio.duration); });
-audio.addEventListener('play',  () => { setPlayIcon(true);  $('cover').classList.add('playing');  renderList(); });
-audio.addEventListener('pause', () => { setPlayIcon(false); $('cover').classList.remove('playing'); renderList(); });
+audio.addEventListener('play',  () => { setPlayIcon(true);  $('cover').classList.add('playing');  refreshActive(); });
+audio.addEventListener('pause', () => { setPlayIcon(false); $('cover').classList.remove('playing'); refreshActive(); });
 audio.addEventListener('ended', () => {
   if (repeat === 'one'){ audio.currentTime = 0; play(); return; }
   step(1);
@@ -391,6 +393,9 @@ function mediaSession(t){
 
 /* ---------- Очередь ---------- */
 const list = $('list');
+const CHUNK = 50;
+let limit = CHUNK;
+
 function visibleTracks(){
   const q = query.trim().toLowerCase();
   return order.map(id => tracks.find(t => t.id === id)).filter(Boolean).filter(t => {
@@ -399,31 +404,72 @@ function visibleTracks(){
     return (t.title + ' ' + (t.artist||'')).toLowerCase().includes(q);
   });
 }
+
+function makeRow(t){
+  const row = document.createElement('button');
+  row.className = 'row';
+  row.dataset.id = t.id;
+  row.innerHTML = `
+    <span class="thumb" style="background:${coverCss(t)}">${(t.title||'♪').trim()[0].toUpperCase()}</span>
+    <span class="rt"><b>${esc(t.title)}</b><span>${esc(t.artist || 'Неизвестный исполнитель')}</span></span>
+    <span class="tail"></span>`;
+  row.addEventListener('click', () => {
+    const cur = current();
+    if (cur && cur.id === t.id) { toggle(); return; }
+    load(t.id, true); select();
+  });
+  return row;
+}
+
+/* Полная перерисовка — только когда меняется состав списка */
 function renderList(){
   const items = visibleTracks();
+  list.innerHTML = '';
   if (!items.length){
     list.innerHTML = `<div class="empty">${onlyFav ? 'Пока ничего не добавлено в избранное.' : 'Ничего не нашлось. Измените запрос.'}</div>`;
     return;
   }
+  const frag = document.createDocumentFragment();
+  for (const t of items.slice(0, limit)) frag.appendChild(makeRow(t));
+  list.appendChild(frag);
+  refreshActive();
+}
+
+/* Догрузка следующей порции при прокрутке — без сброса позиции */
+function growList(){
+  const items = visibleTracks();
+  if (limit >= items.length) return;
+  const frag = document.createDocumentFragment();
+  for (const t of items.slice(limit, limit + CHUNK)) frag.appendChild(makeRow(t));
+  limit += CHUNK;
+  list.appendChild(frag);
+  refreshActive();
+}
+list.addEventListener('scroll', () => {
+  if (list.scrollTop + list.clientHeight > list.scrollHeight - 300) growList();
+}, {passive:true});
+
+/* Смена трека или избранного меняет только оформление строк */
+function refreshActive(){
   const cur = current();
-  list.innerHTML = '';
-  for (const t of items){
-    const active = cur && cur.id === t.id;
-    const row = document.createElement('button');
-    row.className = 'row' + (active ? ' active' : '');
-    row.innerHTML = `
-      <span class="thumb" style="background:${coverCss(t)}">${(t.title||'♪').trim()[0].toUpperCase()}</span>
-      <span class="rt"><b>${esc(t.title)}</b><span>${esc(t.artist || 'Неизвестный исполнитель')}</span></span>
-      ${active && !audio.paused
-        ? '<span class="bars"><s></s><s></s><s></s></span>'
-        : `<span class="dur">${favs.has(t.id) ? '♥' : ''}</span>`}`;
-    row.addEventListener('click', () => {
-      if (cur && cur.id === t.id) { toggle(); return; }
-      load(t.id, true); select();
-    });
-    list.appendChild(row);
+  for (const row of list.children){
+    const id = row.dataset && row.dataset.id;
+    if (!id) continue;
+    const active = cur && cur.id === id;
+    row.classList.toggle('active', !!active);
+    const tail = row.querySelector('.tail');
+    if (!tail) continue;
+    tail.className = 'tail';
+    if (active && !audio.paused){
+      tail.classList.add('bars');
+      tail.innerHTML = '<s></s><s></s><s></s>';
+    } else {
+      tail.classList.add('dur');
+      tail.textContent = favs.has(id) ? '♥' : '';
+    }
   }
 }
+function resetList(){ limit = CHUNK; list.scrollTop = 0; renderList(); }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 /* ---------- Открытие / закрытие очереди ---------- */
@@ -433,7 +479,7 @@ function openQueue(open){
   $('playerView').classList.toggle('pushed', open);
   $('scrim').classList.toggle('on', open);
   if (tg && tg.BackButton){ open ? tg.BackButton.show() : tg.BackButton.hide(); }
-  if (open) renderList();
+  if (open) resetList();
   haptic('light');
 }
 
@@ -444,12 +490,12 @@ $('btnPrev').addEventListener('click', () => step(-1));
 $('btnQueue').addEventListener('click', () => openQueue(true));
 $('btnClose').addEventListener('click', () => openQueue(false));
 $('scrim').addEventListener('click', () => openQueue(false));
-$('search').addEventListener('input', e => { query = e.target.value; renderList(); });
+$('search').addEventListener('input', e => { query = e.target.value; resetList(); });
 
 $('btnShuffle').addEventListener('click', () => {
   shuffle = !shuffle;
   $('btnShuffle').classList.toggle('on', shuffle);
-  buildOrder(true); renderList(); select();
+  buildOrder(true); resetList(); select();
   store.set('shuffle', shuffle ? '1' : '0');
 });
 
@@ -464,13 +510,13 @@ $('btnRepeat').addEventListener('click', () => {
 $('btnOnlyFav').addEventListener('click', () => {
   onlyFav = !onlyFav;
   $('btnOnlyFav').classList.toggle('on', onlyFav);
-  renderList(); select();
+  resetList(); select();
 });
 
 $('btnFav').addEventListener('click', () => {
   const t = current(); if (!t) return;
   favs.has(t.id) ? favs.delete(t.id) : favs.add(t.id);
-  syncFav(); renderList(); haptic('light');
+  syncFav(); resetList(); haptic('light');
   store.set('favs', JSON.stringify([...favs]));
 });
 function syncFav(){
