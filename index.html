@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -211,7 +212,7 @@
   </section>
 </div>
 
-<audio id="audio" preload="metadata" crossorigin="anonymous"></audio>
+<audio id="audio" preload="metadata"></audio>
 
 <script>
 (() => {
@@ -374,6 +375,11 @@ audio.addEventListener('ended', () => {
   if (repeat === 'one'){ audio.currentTime = 0; play(); return; }
   step(1);
 });
+audio.addEventListener('error', () => {
+  const t = current();
+  $('artist').textContent = 'Не удалось загрузить трек — пропускаю';
+  if (t && order.length > 1) setTimeout(() => step(1), 1200);
+});
 
 function setPlayIcon(playing){
   $('playIcon').innerHTML = playing
@@ -478,7 +484,7 @@ function openQueue(open){
   $('queueView').setAttribute('aria-hidden', String(!open));
   $('playerView').classList.toggle('pushed', open);
   $('scrim').classList.toggle('on', open);
-  if (tg && tg.BackButton){ open ? tg.BackButton.show() : tg.BackButton.hide(); }
+  if (tg && tg.BackButton && tg.isVersionAtLeast && tg.isVersionAtLeast('6.1')){ open ? tg.BackButton.show() : tg.BackButton.hide(); }
   if (open) resetList();
   haptic('light');
 }
@@ -536,9 +542,11 @@ async function boot(){
   if (tg){
     tg.ready();
     tg.expand();
-    try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch {}
-    try { tg.setHeaderColor && tg.setHeaderColor('bg_color'); } catch {}
-    tg.BackButton && tg.BackButton.onClick(() => openQueue(false));
+    const v69 = tg.isVersionAtLeast && tg.isVersionAtLeast('6.9');
+    const v61 = tg.isVersionAtLeast && tg.isVersionAtLeast('6.1');
+    if (v69) { try { tg.disableVerticalSwipes(); } catch {} }
+    if (v61) { try { tg.setHeaderColor('bg_color'); } catch {} }
+    if (v61 && tg.BackButton) { tg.BackButton.onClick(() => openQueue(false)); }
     tg.onEvent && tg.onEvent('themeChanged', () => {});
     const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
     if (user && user.first_name) $('where').textContent = 'Фонотека · ' + user.first_name;
