@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Плеер</title>
+<script src="https://telegram.org/js/telegram-web-app.js?58"></script>
+<style>
+  :root{
+    /* Цвета берём из темы Telegram, значения после запятой — запасные */
+    --bg:        var(--tg-theme-bg-color, #14121a);
+    --surface:   var(--tg-theme-secondary-bg-color, #1e1b26);
+    --text:      var(--tg-theme-text-color, #f3f0ea);
+    --muted:     var(--tg-theme-hint-color, #9b93a8);
+    --accent:    var(--tg-theme-button-color, #ffb454);
+    --on-accent: var(--tg-theme-button-text-color, #241a08);
+    --line: color-mix(in srgb, var(--text) 12%, transparent);
+    --lift: color-mix(in srgb, var(--text) 6%, transparent);
+    --pad: 20px;
+    --radius: 18px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif;
+    font-size:16px;line-height:1.35;
+    overflow:hidden;
+    padding-top:env(safe-area-inset-top,0);
+    padding-bottom:env(safe-area-inset-bottom,0);
+  }
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:12px}
+
+  #app{height:100%;display:flex;flex-direction:column;position:relative;overflow:hidden}
+
+  /* ---------- Экран плеера ---------- */
+  .player{
+    flex:1;min-height:0;display:flex;flex-direction:column;
+    padding:var(--pad) var(--pad) 12px;gap:clamp(12px,3vh,26px);
+    transition:transform .32s cubic-bezier(.2,.8,.2,1),opacity .2s;
+  }
+  .player.pushed{transform:scale(.96) translateY(-12px);opacity:.35;pointer-events:none}
+
+  .topline{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:24px}
+  .topline .where{font-size:13px;color:var(--muted);letter-spacing:.02em}
+  .icon-btn{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;color:var(--muted);transition:color .15s,background .15s}
+  .icon-btn:active{background:var(--lift)}
+  .icon-btn.on{color:var(--accent)}
+  .icon-btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+  .cover-wrap{flex:1;min-height:0;display:grid;place-items:center}
+  .cover{
+    position:relative;aspect-ratio:1;width:min(78vw,340px);
+    height:auto;max-height:100%;border-radius:26px;overflow:hidden;
+    display:grid;place-items:center;
+    box-shadow:0 26px 60px -30px rgba(0,0,0,.9);
+    transform:scale(.94);transition:transform .45s cubic-bezier(.2,.8,.2,1);
+  }
+  .cover.playing{transform:scale(1)}
+  .cover .glyph{
+    font-size:clamp(70px,22vw,120px);font-weight:700;letter-spacing:-.05em;
+    color:rgba(255,255,255,.92);mix-blend-mode:overlay;user-select:none;
+  }
+  .cover .sheen{position:absolute;inset:0;background:
+    radial-gradient(120% 90% at 20% 0%, rgba(255,255,255,.28), transparent 60%),
+    radial-gradient(80% 80% at 100% 100%, rgba(0,0,0,.45), transparent 65%);}
+
+  .meta{text-align:left}
+  .meta h1{
+    margin:0;font-size:clamp(21px,5.6vw,27px);font-weight:650;letter-spacing:-.02em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .meta p{margin:4px 0 0;color:var(--muted);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* Волна = и шкала перемотки, и индикатор */
+  .wave{
+    display:flex;align-items:center;gap:2px;height:46px;width:100%;
+    touch-action:none;cursor:pointer;
+  }
+  .wave i{
+    flex:1;border-radius:2px;background:var(--line);
+    transform-origin:center;transition:background .12s linear,transform .12s ease-out;
+  }
+  .wave i.done{background:var(--accent)}
+  .wave i.head{background:var(--accent);transform:scaleY(1.25)}
+  .times{display:flex;justify-content:space-between;margin-top:-8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+  .controls{display:flex;align-items:center;justify-content:space-between;padding:4px 0 6px}
+  .control{width:56px;height:56px;display:grid;place-items:center;border-radius:50%;color:var(--text);transition:transform .12s,background .15s}
+  .control:active{transform:scale(.9);background:var(--lift)}
+  .control svg{width:28px;height:28px;fill:currentColor}
+  .control.small{width:44px;height:44px;color:var(--muted)}
+  .control.small svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .control.small.on{color:var(--accent)}
+  .control.play{
+    width:72px;height:72px;background:var(--accent);color:var(--on-accent);
+    box-shadow:0 12px 30px -12px color-mix(in srgb,var(--accent) 80%,transparent);
+  }
+  .control.play svg{width:32px;height:32px}
+  .rep-badge{position:absolute;margin:26px 0 0 20px;font-size:9px;font-weight:700;color:var(--accent)}
+
+  /* ---------- Очередь ---------- */
+  .queue{
+    position:absolute;inset:0;top:auto;height:88%;display:flex;flex-direction:column;
+    background:var(--surface);border-radius:26px 26px 0 0;
+    transform:translateY(100%);transition:transform .34s cubic-bezier(.2,.8,.2,1);
+    box-shadow:0 -20px 60px -30px rgba(0,0,0,.8);
+    padding-bottom:env(safe-area-inset-bottom,0);
+  }
+  .queue.open{transform:translateY(0)}
+  .grip{width:38px;height:4px;border-radius:2px;background:var(--line);margin:10px auto 6px;flex:none}
+  .queue-head{display:flex;align-items:center;gap:10px;padding:6px var(--pad) 10px}
+  .queue-head h2{margin:0;font-size:17px;font-weight:650;flex:1}
+  .search{
+    margin:0 var(--pad) 8px;display:flex;align-items:center;gap:8px;
+    background:var(--lift);border-radius:12px;padding:9px 12px;flex:none;
+  }
+  .search input{flex:1;background:none;border:0;color:var(--text);font-size:15px;outline:none;min-width:0}
+  .search svg{width:17px;height:17px;fill:none;stroke:var(--muted);stroke-width:1.9;stroke-linecap:round}
+  .list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 16px}
+  .row{display:flex;align-items:center;gap:12px;padding:9px 8px;border-radius:14px;width:100%;text-align:left}
+  .row:active{background:var(--lift)}
+  .row .thumb{width:44px;height:44px;border-radius:11px;flex:none;position:relative;overflow:hidden;display:grid;place-items:center;font-weight:700;color:rgba(255,255,255,.9);font-size:17px}
+  .row .rt{flex:1;min-width:0}
+  .row .rt b{display:block;font-weight:520;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .rt span{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row.active .rt b{color:var(--accent)}
+  .row .dur{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .bars{display:flex;gap:2px;align-items:flex-end;height:14px}
+  .bars s{width:2px;background:var(--accent);height:40%;border-radius:1px;animation:eq .9s ease-in-out infinite}
+  .bars s:nth-child(2){animation-delay:.15s;height:90%}
+  .bars s:nth-child(3){animation-delay:.3s;height:60%}
+  @keyframes eq{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+  .empty{padding:40px 24px;text-align:center;color:var(--muted);font-size:14px}
+
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .3s}
+  .scrim.on{opacity:1;pointer-events:auto}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <section class="player" id="playerView">
+    <div class="topline">
+      <button class="icon-btn" id="btnFav" aria-label="В избранное">
+        <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.3-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.7-7 9-7 9Z"/></svg>
+      </button>
+      <div class="where" id="where">Моя фонотека</div>
+      <button class="icon-btn" id="btnQueue" aria-label="Очередь">
+        <svg viewBox="0 0 24 24"><path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 17V9l3 2"/></svg>
+      </button>
+    </div>
+
+    <div class="cover-wrap">
+      <div class="cover" id="cover"><div class="sheen"></div><div class="glyph" id="glyph">♪</div></div>
+    </div>
+
+    <div class="meta">
+      <h1 id="title">Ничего не играет</h1>
+      <p id="artist">Выберите трек в очереди</p>
+    </div>
+
+    <div>
+      <div class="wave" id="wave" role="slider" aria-label="Перемотка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"></div>
+      <div class="times"><span id="cur">0:00</span><span id="dur">0:00</span></div>
+    </div>
+
+    <div class="controls">
+      <button class="control small" id="btnShuffle" aria-label="Перемешать">
+        <svg viewBox="0 0 24 24"><path d="M16 4h4v4M20 4l-6 6M4 20l16-16M16 20h4v-4M4 4l5 5"/></svg>
+      </button>
+      <button class="control" id="btnPrev" aria-label="Предыдущий">
+        <svg viewBox="0 0 24 24"><path d="M7 5h2v14H7zM20 5v14l-10-7z"/></svg>
+      </button>
+      <button class="control play" id="btnPlay" aria-label="Слушать">
+        <svg id="playIcon" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>
+      </button>
+      <button class="control" id="btnNext" aria-label="Следующий">
+        <svg viewBox="0 0 24 24"><path d="M15 5h2v14h-2zM4 5v14l10-7z"/></svg>
+      </button>
+      <button class="control small" id="btnRepeat" aria-label="Повтор">
+        <svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 12V10a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/></svg>
+        <span class="rep-badge" id="repBadge" hidden>1</span>
+      </button>
+    </div>
+  </section>
+
+  <div class="scrim" id="scrim"></div>
+
+  <section class="queue" id="queueView" aria-hidden="true">
+    <div class="grip"></div>
+    <div class="queue-head">
+      <h2>Очередь</h2>
+      <button class="icon-btn" id="btnOnlyFav" aria-label="Только избранное">
+        <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.3-7-9a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 4.7-7 9-7 9Z"/></svg>
+      </button>
+      <button class="icon-btn" id="btnClose" aria-label="Закрыть">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="search" type="search" placeholder="Найти трек или исполнителя" autocomplete="off">
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+</div>
+
+<audio id="audio" preload="metadata" crossorigin="anonymous"></audio>
+
+<script>
+(() => {
+'use strict';
+
+const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+const $ = id => document.getElementById(id);
+const audio = $('audio');
+
+/* ---------- Запасной плейлист (используется, если нет tracks.json) ---------- */
+const FALLBACK = [
+  {id:'t1', title:'Ночной перегон',   artist:'SoundHelix', src:'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'},
+  {id:'t2', title:'Медленный апрель', artist:'SoundHelix', src:'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3'},
+  {id:'t3', title:'Кассета 94',       artist:'SoundHelix', src:'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3'},
+  {id:'t4', title:'Двор и антенны',   artist:'SoundHelix', src:'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3'}
+];
+
+let tracks = [];
+let order = [];          // порядок воспроизведения (меняется при shuffle)
+let index = -1;          // позиция в order
+let favs = new Set();
+let shuffle = false;
+let repeat = 'off';      // off | all | one
+let onlyFav = false;
+let query = '';
+let seeking = false;
+
+/* ---------- Хранилище: CloudStorage Telegram, иначе localStorage ---------- */
+const store = {
+  get(key){
+    return new Promise(res => {
+      if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9')) {
+        tg.CloudStorage.getItem(key, (err, val) => res(err ? null : (val || null)));
+      } else {
+        try { res(localStorage.getItem(key)); } catch { res(null); }
+      }
+    });
+  },
+  set(key, val){
+    if (tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9')) {
+      try { tg.CloudStorage.setItem(key, val, () => {}); } catch {}
+    } else {
+      try { localStorage.setItem(key, val); } catch {}
+    }
+  }
+};
+
+const haptic = type => { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(type || 'light'); } catch {} };
+const select = () => { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch {} };
+
+/* ---------- Обложка генерируется из названия ---------- */
+function hash(str){ let h = 0; for (const ch of str) h = (h * 31 + ch.codePointAt(0)) >>> 0; return h; }
+function coverCss(track){
+  const h = hash(track.id + track.title);
+  const a = h % 360, b = (a + 40 + (h >> 8) % 90) % 360, c = (a + 200) % 360;
+  return `linear-gradient(${(h>>4)%360}deg, hsl(${a} 72% 52%), hsl(${b} 68% 42%) 55%, hsl(${c} 60% 30%))`;
+}
+
+/* ---------- Волна ---------- */
+const BARS = 44;
+const wave = $('wave');
+const barEls = [];
+for (let i = 0; i < BARS; i++){ const b = document.createElement('i'); wave.appendChild(b); barEls.push(b); }
+let shape = new Array(BARS).fill(.4);
+
+function makeShape(track){
+  const seed = hash(track ? track.title : 'x');
+  shape = barEls.map((_, i) => {
+    const n = Math.sin(seed % 100 + i * .55) * Math.cos(i * .21 + (seed % 17)) ;
+    return .28 + Math.abs(n) * .72;
+  });
+  barEls.forEach((b, i) => { b.style.height = Math.round(shape[i] * 100) + '%'; });
+}
+function paintWave(ratio){
+  const head = Math.round(ratio * (BARS - 1));
+  barEls.forEach((b, i) => {
+    b.classList.toggle('done', i < head);
+    b.classList.toggle('head', i === head && ratio > 0);
+  });
+  wave.setAttribute('aria-valuenow', Math.round(ratio * 100));
+}
+function seekFromX(clientX){
+  const r = wave.getBoundingClientRect();
+  const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  if (audio.duration) audio.currentTime = ratio * audio.duration;
+  paintWave(ratio);
+}
+wave.addEventListener('pointerdown', e => { seeking = true; wave.setPointerCapture(e.pointerId); seekFromX(e.clientX); });
+wave.addEventListener('pointermove', e => { if (seeking) seekFromX(e.clientX); });
+wave.addEventListener('pointerup',   e => { seeking = false; haptic('soft'); });
+wave.addEventListener('keydown', e => {
+  if (!audio.duration) return;
+  if (e.key === 'ArrowRight') audio.currentTime = Math.min(audio.duration, audio.currentTime + 5);
+  if (e.key === 'ArrowLeft')  audio.currentTime = Math.max(0, audio.currentTime - 5);
+});
+
+/* ---------- Воспроизведение ---------- */
+const fmt = s => (!isFinite(s) || s < 0) ? '0:00' : Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
+const current = () => tracks.find(t => t.id === order[index]) || null;
+
+function buildOrder(keepCurrent){
+  const cur = keepCurrent ? order[index] : null;
+  order = tracks.map(t => t.id);
+  if (shuffle){
+    for (let i = order.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i+1)); [order[i], order[j]] = [order[j], order[i]]; }
+    if (cur){ order = order.filter(id => id !== cur); order.unshift(cur); }
+  }
+  index = cur ? order.indexOf(cur) : index;
+}
+
+function load(id, autoplay){
+  const pos = order.indexOf(id);
+  if (pos === -1) return;
+  index = pos;
+  const t = current();
+  audio.src = t.src;
+  $('title').textContent = t.title;
+  $('artist').textContent = t.artist || 'Неизвестный исполнитель';
+  $('glyph').textContent = (t.title || '♪').trim()[0].toUpperCase();
+  $('cover').style.background = coverCss(t);
+  makeShape(t);
+  paintWave(0);
+  $('cur').textContent = '0:00';
+  $('dur').textContent = t.duration ? fmt(t.duration) : '0:00';
+  syncFav();
+  renderList();
+  mediaSession(t);
+  store.set('last', t.id);
+  if (autoplay) play();
+}
+
+function play(){
+  audio.play().then(() => haptic('medium')).catch(() => {
+    $('artist').textContent = 'Не удалось загрузить файл — проверьте ссылку';
+  });
+}
+function toggle(){ if (!current()) { const first = order[0]; if (first) return load(first, true); return; } audio.paused ? play() : audio.pause(); }
+function step(delta){
+  if (!order.length) return;
+  if (delta < 0 && audio.currentTime > 3){ audio.currentTime = 0; return; }
+  let next = index + delta;
+  if (next >= order.length){
+    if (repeat === 'off'){ audio.pause(); audio.currentTime = 0; paintWave(0); return; }
+    next = 0;
+  }
+  if (next < 0) next = order.length - 1;
+  load(order[next], true);
+  select();
+}
+
+audio.addEventListener('timeupdate', () => {
+  if (seeking || !audio.duration) return;
+  paintWave(audio.currentTime / audio.duration);
+  $('cur').textContent = fmt(audio.currentTime);
+});
+audio.addEventListener('loadedmetadata', () => { $('dur').textContent = fmt(audio.duration); });
+audio.addEventListener('play',  () => { setPlayIcon(true);  $('cover').classList.add('playing');  renderList(); });
+audio.addEventListener('pause', () => { setPlayIcon(false); $('cover').classList.remove('playing'); renderList(); });
+audio.addEventListener('ended', () => {
+  if (repeat === 'one'){ audio.currentTime = 0; play(); return; }
+  step(1);
+});
+
+function setPlayIcon(playing){
+  $('playIcon').innerHTML = playing
+    ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>'
+    : '<path d="M7 4.5v15l13-7.5z"/>';
+  $('btnPlay').setAttribute('aria-label', playing ? 'Пауза' : 'Слушать');
+}
+
+function mediaSession(t){
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || '', album: 'Мини-плеер' });
+  navigator.mediaSession.setActionHandler('play', play);
+  navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+  navigator.mediaSession.setActionHandler('previoustrack', () => step(-1));
+  navigator.mediaSession.setActionHandler('nexttrack', () => step(1));
+}
+
+/* ---------- Очередь ---------- */
+const list = $('list');
+function visibleTracks(){
+  const q = query.trim().toLowerCase();
+  return order.map(id => tracks.find(t => t.id === id)).filter(Boolean).filter(t => {
+    if (onlyFav && !favs.has(t.id)) return false;
+    if (!q) return true;
+    return (t.title + ' ' + (t.artist||'')).toLowerCase().includes(q);
+  });
+}
+function renderList(){
+  const items = visibleTracks();
+  if (!items.length){
+    list.innerHTML = `<div class="empty">${onlyFav ? 'Пока ничего не добавлено в избранное.' : 'Ничего не нашлось. Измените запрос.'}</div>`;
+    return;
+  }
+  const cur = current();
+  list.innerHTML = '';
+  for (const t of items){
+    const active = cur && cur.id === t.id;
+    const row = document.createElement('button');
+    row.className = 'row' + (active ? ' active' : '');
+    row.innerHTML = `
+      <span class="thumb" style="background:${coverCss(t)}">${(t.title||'♪').trim()[0].toUpperCase()}</span>
+      <span class="rt"><b>${esc(t.title)}</b><span>${esc(t.artist || 'Неизвестный исполнитель')}</span></span>
+      ${active && !audio.paused
+        ? '<span class="bars"><s></s><s></s><s></s></span>'
+        : `<span class="dur">${favs.has(t.id) ? '♥' : ''}</span>`}`;
+    row.addEventListener('click', () => {
+      if (cur && cur.id === t.id) { toggle(); return; }
+      load(t.id, true); select();
+    });
+    list.appendChild(row);
+  }
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Открытие / закрытие очереди ---------- */
+function openQueue(open){
+  $('queueView').classList.toggle('open', open);
+  $('queueView').setAttribute('aria-hidden', String(!open));
+  $('playerView').classList.toggle('pushed', open);
+  $('scrim').classList.toggle('on', open);
+  if (tg && tg.BackButton){ open ? tg.BackButton.show() : tg.BackButton.hide(); }
+  if (open) renderList();
+  haptic('light');
+}
+
+/* ---------- Кнопки ---------- */
+$('btnPlay').addEventListener('click', toggle);
+$('btnNext').addEventListener('click', () => step(1));
+$('btnPrev').addEventListener('click', () => step(-1));
+$('btnQueue').addEventListener('click', () => openQueue(true));
+$('btnClose').addEventListener('click', () => openQueue(false));
+$('scrim').addEventListener('click', () => openQueue(false));
+$('search').addEventListener('input', e => { query = e.target.value; renderList(); });
+
+$('btnShuffle').addEventListener('click', () => {
+  shuffle = !shuffle;
+  $('btnShuffle').classList.toggle('on', shuffle);
+  buildOrder(true); renderList(); select();
+  store.set('shuffle', shuffle ? '1' : '0');
+});
+
+$('btnRepeat').addEventListener('click', () => {
+  repeat = repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off';
+  $('btnRepeat').classList.toggle('on', repeat !== 'off');
+  $('repBadge').hidden = repeat !== 'one';
+  select();
+  store.set('repeat', repeat);
+});
+
+$('btnOnlyFav').addEventListener('click', () => {
+  onlyFav = !onlyFav;
+  $('btnOnlyFav').classList.toggle('on', onlyFav);
+  renderList(); select();
+});
+
+$('btnFav').addEventListener('click', () => {
+  const t = current(); if (!t) return;
+  favs.has(t.id) ? favs.delete(t.id) : favs.add(t.id);
+  syncFav(); renderList(); haptic('light');
+  store.set('favs', JSON.stringify([...favs]));
+});
+function syncFav(){
+  const t = current();
+  const on = !!t && favs.has(t.id);
+  $('btnFav').classList.toggle('on', on);
+  $('btnFav').querySelector('path').setAttribute('fill', on ? 'currentColor' : 'none');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space'){ e.preventDefault(); toggle(); }
+});
+
+/* ---------- Запуск ---------- */
+async function boot(){
+  if (tg){
+    tg.ready();
+    tg.expand();
+    try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch {}
+    try { tg.setHeaderColor && tg.setHeaderColor('bg_color'); } catch {}
+    tg.BackButton && tg.BackButton.onClick(() => openQueue(false));
+    tg.onEvent && tg.onEvent('themeChanged', () => {});
+    const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
+    if (user && user.first_name) $('where').textContent = 'Фонотека · ' + user.first_name;
+  }
+
+  try {
+    const res = await fetch('tracks.json', {cache:'no-store'});
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    tracks = Array.isArray(data) ? data : (data.tracks || []);
+  } catch { tracks = FALLBACK; }
+  tracks = tracks.filter(t => t && t.src).map((t, i) => ({ id: String(t.id || 'tr' + i), title: t.title || 'Без названия', artist: t.artist || '', src: t.src }));
+
+  const [f, sh, rp, last] = await Promise.all([store.get('favs'), store.get('shuffle'), store.get('repeat'), store.get('last')]);
+  try { if (f) favs = new Set(JSON.parse(f)); } catch {}
+  shuffle = sh === '1';
+  repeat = ['off','all','one'].includes(rp) ? rp : 'off';
+  $('btnShuffle').classList.toggle('on', shuffle);
+  $('btnRepeat').classList.toggle('on', repeat !== 'off');
+  $('repBadge').hidden = repeat !== 'one';
+
+  buildOrder(false);
+  if (!tracks.length){
+    $('title').textContent = 'Плейлист пуст';
+    $('artist').textContent = 'Добавьте треки в tracks.json';
+    return;
+  }
+  const startId = (last && tracks.some(t => t.id === last)) ? last : order[0];
+  load(startId, false);   // автоплей запрещён браузерами — стартуем по нажатию
+  setPlayIcon(false);
+}
+boot();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "t1",
+    "title": "Ночной перегон",
+    "artist": "SoundHelix",
+    "src": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+  },
+  {
+    "id": "t2",
+    "title": "Медленный апрель",
+    "artist": "SoundHelix",
+    "src": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+  },
+  {
+    "id": "t3",
+    "title": "Кассета 94",
+    "artist": "SoundHelix",
+    "src": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+  },
+  {
+    "id": "t4",
+    "title": "Двор и антенны",
+    "artist": "SoundHelix",
+    "src": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3"
+  },
+  {
+    "id": "t5",
+    "title": "Свой трек",
+    "artist": "Положите mp3 рядом с index.html",
+    "src": "media/my-track.mp3"
+  }
+]
